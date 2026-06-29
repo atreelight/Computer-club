@@ -536,6 +536,49 @@ body{
 .game-compare .gc-item .from{color:var(--red)}
 .game-compare .gc-item .to{color:var(--green)}
 
+/* Machine selector */
+.machine-select{
+  position:relative;
+}
+.machine-trigger{
+  display:flex;align-items:center;gap:.3rem;
+  font-size:.8rem;padding:.4rem .625rem;
+  background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);
+  cursor:pointer;transition:var(--t);font-family:inherit;color:var(--ink2);
+}
+.machine-trigger:hover{border-color:var(--accent);color:var(--accent)}
+.machine-trigger .arrow{font-size:.7rem;transition:var(--t)}
+.machine-trigger.open .arrow{transform:rotate(180deg)}
+.machine-dropdown{
+  position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:100;
+  background:var(--surface);border:1px solid var(--border);border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.12);max-height:300px;overflow-y:auto;
+  display:none;
+}
+.machine-dropdown.show{display:block;animation:fadeIn .15s ease}
+.machine-dropdown::-webkit-scrollbar{width:4px}
+.machine-dropdown::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.md-group-label{
+  font-size:.68rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+  padding:.4rem .625rem;background:var(--surface2);position:sticky;top:0;
+}
+.md-item{
+  display:flex;flex-direction:column;gap:.1rem;
+  padding:.45rem .625rem;cursor:pointer;
+  transition:var(--t);border-bottom:1px solid var(--border2);
+}
+.md-item:last-child{border-bottom:none}
+.md-item:hover{background:var(--accent-bg)}
+.md-item .md-name{font-size:.8rem;font-weight:600}
+.md-item .md-spec{font-size:.7rem;color:var(--muted)}
+.md-item .md-badge{
+  font-size:.65rem;font-weight:600;padding:.1rem .3rem;border-radius:3px;
+  display:inline-block;margin-top:.15rem;align-self:flex-start;
+}
+.md-item .md-badge.green{background:var(--green-bg);color:var(--green)}
+.md-item .md-badge.blue{background:var(--accent-bg);color:var(--accent)}
+.md-item .md-badge.amber{background:var(--amber-bg);color:var(--amber)}
+
 /* === Knowledge panel === */
 .kb-list{display:flex;flex-direction:column;gap:.5rem}
 .kb-item{
@@ -852,28 +895,22 @@ body{
         <div class="compare-head">
           <div class="old-machine">
             <span class="label">原机</span>
-            <span class="val">联想拯救者Y7000</span>
+            <span class="val" id="oldMachineName">联想拯救者 Y9000P 2023</span>
           </div>
-          <span class="change" onclick="alert('选择原机型号功能开发中')">更换机型 →</span>
+          <div class="machine-select" id="machineSelect">
+            <button class="machine-trigger" id="machineTrigger" onclick="toggleMachineDropdown()">
+              更换机型 <span class="arrow">▼</span>
+            </button>
+            <div class="machine-dropdown" id="machineDropdown"></div>
+          </div>
         </div>
-        <table class="compare-table">
+        <table class="compare-table" id="compareTable">
           <thead>
             <tr><th>指标</th><th class="old">原机 (笔记本)</th><th class="new">新机 (台式机)</th><th>变化</th></tr>
           </thead>
-          <tbody>
-            <tr><td class="metric">CPU单核</td><td class="old-val">2,410</td><td class="new-val">2,840</td><td class="delta up">+18%</td></tr>
-            <tr><td class="metric">CPU多核</td><td class="old-val">12,800</td><td class="new-val">20,900</td><td class="delta up">+63%</td></tr>
-            <tr><td class="metric">显卡3DMark</td><td class="old-val">6,200</td><td class="new-val">10,950</td><td class="delta up">+77%</td></tr>
-            <tr><td class="metric">内存</td><td class="old-val">16GB DDR4</td><td class="new-val">32GB DDR4</td><td class="delta up">+100%</td></tr>
-            <tr><td class="metric">存储</td><td class="old-val">512GB SSD</td><td class="new-val">1TB SSD</td><td class="delta up">+100%</td></tr>
-          </tbody>
+          <tbody id="compareBody"></tbody>
         </table>
-        <div class="game-compare">
-          <div class="gc-title">游戏能力变化</div>
-          <div class="gc-item">燕云十六声 <span class="from">最低(30帧)</span><span class="arrow">→</span><span class="to">推荐(60帧中高)</span></div>
-          <div class="gc-item">黑神话悟空 <span class="from">最低(30帧)</span><span class="arrow">→</span><span class="to">推荐+(60帧高)</span></div>
-          <div class="gc-item">赛博朋克2077 <span class="from">不达标</span><span class="arrow">→</span><span class="to">推荐(50-60帧)</span></div>
-        </div>
+        <div class="game-compare" id="gameCompare"></div>
       </div>
 
       <!-- Panel: Knowledge -->
@@ -1105,6 +1142,7 @@ function renderConfig(){
   body.innerHTML=html;
   updateTotal();
   updateCompat();
+  renderCompare();
 }
 
 function updateTotal(){
@@ -1192,6 +1230,7 @@ function swapHardware(idx,altIdx){
     openAltIdx=idx;
   },10);
   showToast('已切换 '+item.cat+' 为 '+item.model);
+  renderCompare();
 }
 
 function toggleEditMode(btn){
@@ -1307,6 +1346,235 @@ function toggleAI(){
     d.classList.add('open');f.classList.add('hidden');
   }
 }
+
+/* ===== Laptop Database & Compare ===== */
+var laptopDB=[
+  {
+    group:'联想拯救者',
+    machines:[
+      {name:'Y9000P 2023 (i9-13900HX/4060)',cpu:'i9-13900HX',cpuSingle:2410,cpuMulti:28500,gpu:'RTX 4060 Laptop',gpu3dmark:10400,ram:'16GB DDR5-5600',storage:'1TB PCIe 4.0 SSD',badge:'blue',badgeText:'你的机型',
+        fps:{'燕云十六声':'中高(45-55帧)','黑神话悟空':'中高(50-60帧)','赛博朋克2077':'中(40-50帧)','艾尔登法环':'高(55-65帧)','原神':'最高(90+帧)','CS2':'竞技(144+帧)'}},
+      {name:'Y9000P 2023 (i9-13900HX/4070)',cpu:'i9-13900HX',cpuSingle:2410,cpuMulti:28500,gpu:'RTX 4070 Laptop',gpu3dmark:12800,ram:'16GB DDR5-5600',storage:'1TB PCIe 4.0 SSD',badge:'blue',badgeText:'高配',
+        fps:{'燕云十六声':'推荐(55-65帧)','黑神话悟空':'推荐(60-70帧)','赛博朋克2077':'中高(50-60帧)','艾尔登法环':'最高(60帧)','原神':'最高(144帧)','CS2':'竞技(200+帧)'}},
+      {name:'Y7000P 2022 (i7-12700H/3050)',cpu:'i7-12700H',cpuSingle:2080,cpuMulti:16800,gpu:'RTX 3050 Laptop',gpu3dmark:6200,ram:'16GB DDR4-3200',storage:'512GB PCIe 3.0 SSD',badge:'amber',badgeText:'入门',
+        fps:{'燕云十六声':'最低(30帧)','黑神话悟空':'最低(30帧)','赛博朋克2077':'不达标','艾尔登法环':'中(45-55帧)','原神':'高(60帧)','CS2':'中高(90帧)'}},
+      {name:'R9000P 2023 (R7-7745HX/4060)',cpu:'R7-7745HX',cpuSingle:2180,cpuMulti:19800,gpu:'RTX 4060 Laptop',gpu3dmark:10400,ram:'16GB DDR5-5200',storage:'1TB PCIe 4.0 SSD',badge:'green',badgeText:'热门',
+        fps:{'燕云十六声':'中高(45-55帧)','黑神话悟空':'中高(50-60帧)','赛博朋克2077':'中(40-50帧)','艾尔登法环':'高(55-65帧)','原神':'最高(90+帧)','CS2':'竞技(144+帧)'}}
+    ]
+  },
+  {
+    group:'华硕 ROG',
+    machines:[
+      {name:'ROG Strix G18 2023 (i9-13980HX/4070)',cpu:'i9-13980HX',cpuSingle:2460,cpuMulti:31200,gpu:'RTX 4070 Laptop',gpu3dmark:12800,ram:'16GB DDR5-4800',storage:'1TB PCIe 4.0 SSD',badge:'blue',badgeText:'旗舰',
+        fps:{'燕云十六声':'推荐(55-65帧)','黑神话悟空':'推荐+(60-75帧)','赛博朋克2077':'中高(50-60帧)','艾尔登法环':'最高(60帧)','原神':'最高(144帧)','CS2':'竞技(200+帧)'}},
+      {name:'ROG Strix G15 2022 (R9-6900HX/3060)',cpu:'R9-6900HX',cpuSingle:1950,cpuMulti:17200,gpu:'RTX 3060 Laptop',gpu3dmark:8600,ram:'16GB DDR5-4800',storage:'512GB PCIe 4.0 SSD',badge:'amber',badgeText:'性价比',
+        fps:{'燕云十六声':'中(35-45帧)','黑神话悟空':'中(40-50帧)','赛博朋克2077':'最低(30帧)','艾尔登法环':'中高(50-60帧)','原神':'高(60帧)','CS2':'中高(120帧)'}},
+      {name:'天选4 2023 (R7-7735H/4060)',cpu:'R7-7735H',cpuSingle:2050,cpuMulti:15200,gpu:'RTX 4060 Laptop',gpu3dmark:10400,ram:'16GB DDR5-4800',storage:'512GB PCIe 4.0 SSD',badge:'green',badgeText:'热门',
+        fps:{'燕云十六声':'中高(45-55帧)','黑神话悟空':'中高(50-60帧)','赛博朋克2077':'中(40-50帧)','艾尔登法环':'高(55-65帧)','原神':'最高(90+帧)','CS2':'竞技(144+帧)'}}
+    ]
+  },
+  {
+    group:'惠普 暗影精灵',
+    machines:[
+      {name:'OMEN 16 2023 (i9-13900HX/4080)',cpu:'i9-13900HX',cpuSingle:2410,cpuMulti:28500,gpu:'RTX 4080 Laptop',gpu3dmark:17200,ram:'32GB DDR5-5600',storage:'1TB PCIe 4.0 SSD',badge:'blue',badgeText:'顶配',
+        fps:{'燕云十六声':'推荐+(60-70帧)','黑神话悟空':'推荐+(65-75帧)','赛博朋克2077':'推荐(55-65帧)','艾尔登法环':'最高(60帧)','原神':'最高(144帧)','CS2':'竞技(240+帧)'}},
+      {name:'OMEN 16 2022 (i7-12700H/3060)',cpu:'i7-12700H',cpuSingle:2080,cpuMulti:16800,gpu:'RTX 3060 Laptop',gpu3dmark:8600,ram:'16GB DDR5-4800',storage:'512GB PCIe 4.0 SSD',badge:'amber',badgeText:'入门',
+        fps:{'燕云十六声':'中(35-45帧)','黑神话悟空':'中(40-50帧)','赛博朋克2077':'最低(30帧)','艾尔登法环':'中高(50-60帧)','原神':'高(60帧)','CS2':'中高(120帧)'}}
+    ]
+  },
+  {
+    group:'戴尔 游匣',
+    machines:[
+      {name:'G15 5530 2023 (i7-13650HX/4060)',cpu:'i7-13650HX',cpuSingle:2250,cpuMulti:19800,gpu:'RTX 4060 Laptop',gpu3dmark:10400,ram:'16GB DDR5-4800',storage:'512GB PCIe 4.0 SSD',badge:'green',badgeText:'主流',
+        fps:{'燕云十六声':'中高(45-55帧)','黑神话悟空':'中高(50-60帧)','赛博朋克2077':'中(40-50帧)','艾尔登法环':'高(55-65帧)','原神':'最高(90+帧)','CS2':'竞技(144+帧)'}},
+      {name:'G15 5520 2022 (i7-12700H/3050Ti)',cpu:'i7-12700H',cpuSingle:2080,cpuMulti:16800,gpu:'RTX 3050 Ti Laptop',gpu3dmark:7200,ram:'16GB DDR5-4800',storage:'512GB PCIe 3.0 SSD',badge:'amber',badgeText:'入门',
+        fps:{'燕云十六声':'最低(30帧)','黑神话悟空':'最低(30帧)','赛博朋克2077':'不达标','艾尔登法环':'中(45-55帧)','原神':'中高(60帧)','CS2':'中高(100帧)'}}
+    ]
+  },
+  {
+    group:'微星',
+    machines:[
+      {name:'Katana GF76 2022 (i7-12700H/3060)',cpu:'i7-12700H',cpuSingle:2080,cpuMulti:16800,gpu:'RTX 3060 Laptop',gpu3dmark:8600,ram:'16GB DDR4-3200',storage:'1TB PCIe 4.0 SSD',badge:'amber',badgeText:'性价比',
+        fps:{'燕云十六声':'中(35-45帧)','黑神话悟空':'中(40-50帧)','赛博朋克2077':'最低(30帧)','艾尔登法环':'中高(50-60帧)','原神':'高(60帧)','CS2':'中高(120帧)'}}
+    ]
+  },
+  {
+    group:'机械革命',
+    machines:[
+      {name:'极光Pro 2023 (i7-12650H/4060)',cpu:'i7-12650H',cpuSingle:2150,cpuMulti:16500,gpu:'RTX 4060 Laptop',gpu3dmark:10400,ram:'16GB DDR5-4800',storage:'512GB PCIe 4.0 SSD',badge:'green',badgeText:'性价比',
+        fps:{'燕云十六声':'中高(45-55帧)','黑神话悟空':'中高(50-60帧)','赛博朋克2077':'中(40-50帧)','艾尔登法环':'高(55-65帧)','原神':'最高(90+帧)','CS2':'竞技(144+帧)'}}
+    ]
+  }
+];
+
+var selectedMachine=null;
+
+function getCurrentMachine(){
+  if(selectedMachine)return selectedMachine;
+  // Default: user's Y9000P 2023 i9/4060
+  return laptopDB[0].machines[0];
+}
+
+function getNewMachineScores(){
+  var cpuModel=config.items[0].model;
+  var gpuModel=config.items[3].model;
+  var ramModel=config.items[2].model;
+  // CPU scores (approximate Cinebench R23)
+  var cpuScores={
+    'AMD Ryzen 5 9600':{single:2840,multi:20900},
+    'AMD R5 7500F':{single:2780,multi:19200},
+    'AMD R7 7700':{single:2920,multi:27500},
+    'Intel i5-12400F':{single:2650,multi:17200},
+    'AMD R5 5600':{single:2150,multi:15500}
+  };
+  var cpuS=cpuScores[cpuModel]||{single:2840,multi:20900};
+  // GPU 3DMark (approximate)
+  var gpuScores={
+    'NVIDIA RTX 5060 12GB':10950,
+    'RTX 4060 8GB':10400,
+    'RTX 5060 Ti 16GB':12800,
+    'RX 7600 8GB':8800,
+    'RTX 4070 Super 12GB':17200,
+    'GTX 1060 6GB (二手)':6200
+  };
+  var gpuS=gpuScores[gpuModel]||10950;
+  // RAM
+  var ramCap=/32|64/.test(ramModel)?32:16;
+  var ramType=/DDR5/.test(ramModel)?'DDR5':'DDR4';
+  // Storage
+  var ssdCap=/2TB/.test(config.items[4].model)?2048:/1TB/.test(config.items[4].model)?1024:512;
+  return {cpuSingle:cpuS.single,cpuMulti:cpuS.multi,gpu3dmark:gpuS,ramCap:ramCap,ramType:ramType,ssdCap:ssdCap};
+}
+
+function renderMachineDropdown(){
+  var dd=document.getElementById('machineDropdown');
+  var html='';
+  laptopDB.forEach(function(g){
+    html+='<div class="md-group-label">'+g.group+'</div>';
+    g.machines.forEach(function(m){
+      html+='<div class="md-item" onclick="selectMachine(\''+m.name.replace(/'/g,"\\'")+'\')">';
+      html+='<div class="md-name">'+m.name+'</div>';
+      html+='<div class="md-spec">'+m.cpu+' / '+m.gpu+' / '+m.ram+'</div>';
+      html+='<span class="md-badge '+(m.badge||'green')+'">'+m.badgeText+'</span>';
+      html+='</div>';
+    });
+  });
+  dd.innerHTML=html;
+}
+
+function toggleMachineDropdown(){
+  var dd=document.getElementById('machineDropdown');
+  var btn=document.getElementById('machineTrigger');
+  if(dd.classList.contains('show')){
+    dd.classList.remove('show');btn.classList.remove('open');
+  }else{
+    renderMachineDropdown();
+    dd.classList.add('show');btn.classList.add('open');
+  }
+}
+
+function selectMachine(name){
+  laptopDB.forEach(function(g){
+    g.machines.forEach(function(m){
+      if(m.name===name)selectedMachine=m;
+    });
+  });
+  document.getElementById('machineDropdown').classList.remove('show');
+  document.getElementById('machineTrigger').classList.remove('open');
+  renderCompare();
+}
+
+function renderCompare(){
+  var oldM=getCurrentMachine();
+  var newM=getNewMachineScores();
+  document.getElementById('oldMachineName').textContent=oldM.name;
+
+  // Compare table
+  var rows=[
+    {metric:'CPU单核',oldVal:oldM.cpuSingle.toLocaleString(),newVal:newM.cpuSingle.toLocaleString()},
+    {metric:'CPU多核',oldVal:oldM.cpuMulti.toLocaleString(),newVal:newM.cpuMulti.toLocaleString()},
+    {metric:'显卡3DMark',oldVal:oldM.gpu3dmark.toLocaleString(),newVal:newM.gpu3dmark.toLocaleString()},
+    {metric:'内存',oldVal:oldM.ram,newVal:newM.ramCap+'GB '+newM.ramType},
+    {metric:'存储',oldVal:oldM.storage,newVal:(newM.ssdCap>=1024?(newM.ssdCap/1024).toFixed(0)+'TB':newM.ssdCap+'GB')+' PCIe SSD'}
+  ];
+  var html='';
+  rows.forEach(function(r){
+    var oldNum=parseInt(r.oldVal.replace(/,/g,''))||0;
+    var newNum=parseInt(r.newVal.replace(/[^\d]/g,''))||0;
+    var pct=oldNum>0?Math.round((newNum-oldNum)/oldNum*100):0;
+    var deltaClass=pct>0?'up':pct<0?'down':'flat';
+    var deltaText=pct>0?'+'+pct+'%':pct<0?pct+'%':'持平';
+    if(r.metric==='内存'||r.metric==='存储'){
+      // For RAM/storage, compare capacity numerically
+      var oldCap=parseInt(r.oldVal.match(/(\d+)/)[1]);
+      var newCap=newNum;
+      pct=Math.round((newCap-oldCap)/oldCap*100);
+      deltaClass=pct>0?'up':pct<0?'down':'flat';
+      deltaText=pct>0?'+'+pct+'%':pct<0?pct+'%':'持平';
+    }
+    html+='<tr><td class="metric">'+r.metric+'</td><td class="old-val">'+r.oldVal+'</td><td class="new-val">'+r.newVal+'</td><td class="delta '+deltaClass+'">'+deltaText+'</td></tr>';
+  });
+  document.getElementById('compareBody').innerHTML=html;
+
+  // Game compare
+  var gcHtml='<div class="gc-title">游戏能力变化</div>';
+  var gameNames=['燕云十六声','黑神话悟空','赛博朋克2077','艾尔登法环','原神','CS2'];
+  gameNames.forEach(function(g){
+    var oldFps=oldM.fps[g]||'未知';
+    // Determine new capability based on current config
+    var newFps=getNewGameCapability(g);
+    gcHtml+='<div class="gc-item">'+g+' <span class="from">'+oldFps+'</span><span class="arrow">→</span><span class="to">'+newFps+'</span></div>';
+  });
+  document.getElementById('gameCompare').innerHTML=gcHtml;
+}
+
+function getNewGameCapability(game){
+  var gpu=config.items[3].model;
+  var ram=/32|64/.test(config.items[2].model)?32:16;
+  var isDDR5=/DDR5/.test(config.items[2].model);
+  // GPU tier check
+  var isHighGpu=/5060 Ti|4070|4080|4090/.test(gpu);
+  var isMidGpu=/5060|4060/.test(gpu);
+  var isLowGpu=/3050|1060|7600/.test(gpu);
+
+  var caps={
+    '燕云十六声':{
+      high:isHighGpu?'推荐+(65-75帧)':isMidGpu?'推荐(55-65帧)':isLowGpu?'中高(40-50帧)':'中(35-45帧)',
+      low:isMidGpu?'推荐(55-65帧)':isLowGpu?'中高(40-50帧)':'中(35-45帧)'
+    },
+    '黑神话悟空':{
+      high:isHighGpu?'推荐+(65-75帧)':isMidGpu?'推荐(60-70帧)':isLowGpu?'中高(45-55帧)':'中(40-50帧)',
+      low:isMidGpu?'推荐(60-70帧)':isLowGpu?'中高(45-55帧)':'中(40-50帧)'
+    },
+    '赛博朋克2077':{
+      high:isHighGpu?'推荐(55-65帧)':isMidGpu?'中高(50-60帧)':isLowGpu?'中(35-45帧)':'最低(30帧)',
+      low:isMidGpu?'中高(50-60帧)':isLowGpu?'中(35-45帧)':'最低(30帧)'
+    },
+    '艾尔登法环':{
+      high:isHighGpu?'最高(60帧)':isMidGpu?'最高(60帧)':isLowGpu?'高(55-65帧)':'中高(50-60帧)',
+      low:isMidGpu?'最高(60帧)':isLowGpu?'高(55-65帧)':'中高(50-60帧)'
+    },
+    '原神':{
+      high:isHighGpu?'最高(144帧)':isMidGpu?'最高(90+帧)':isLowGpu?'高(60帧)':'中(45-55帧)',
+      low:isMidGpu?'最高(90+帧)':isLowGpu?'高(60帧)':'中(45-55帧)'
+    },
+    'CS2':{
+      high:isHighGpu?'竞技(240+帧)':isMidGpu?'竞技(144+帧)':isLowGpu?'中高(120帧)':'中(90帧)',
+      low:isMidGpu?'竞技(144+帧)':isLowGpu?'中高(120帧)':'中(90帧)'
+    }
+  };
+  return (caps[game]||{}).high||'推荐';
+}
+
+// Close dropdown on outside click
+document.addEventListener('click',function(e){
+  var sel=document.getElementById('machineSelect');
+  var dd=document.getElementById('machineDropdown');
+  if(sel&&dd&&dd.classList.contains('show')&&!sel.contains(e.target)){
+    dd.classList.remove('show');
+    document.getElementById('machineTrigger').classList.remove('open');
+  }
+});
 
 /* ===== AI Knowledge Base ===== */
 var kb={
@@ -1842,6 +2110,7 @@ function generateQAConfig(){
   config.budget=budget;
   config.items=newItems;
   renderConfig();
+  renderCompare();
 
   // Show result in QA modal
   var total=newItems.reduce(function(s,i){return s+i.price},0);
@@ -1918,6 +2187,7 @@ function restartQA(){
 
 /* ===== Init ===== */
 renderConfig();
+renderCompare();
 renderQAStep();
 </script>
 </body>
