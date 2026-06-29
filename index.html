@@ -1857,15 +1857,20 @@ function buildSystemPrompt(){
     '回答要求：直接说人话，别列清单。用户问拆件就告诉他什么能拆什么不能拆，用户问预算就推荐方案，用户问游戏就说帧数。不懂就坦诚说"这个我不确定"，别瞎编。语气随意，可以吐槽。';
 }
 
+var chatHistory=[];
+
 function sendMsg(){
   var input=document.getElementById('aiInput');
   var chat=document.getElementById('aiChat');
   var t=input.value.trim();
   if(!t)return;
+
+  // Add user message
   var m=document.createElement('div');
   m.className='msg user';m.textContent=t;
   chat.appendChild(m);input.value='';
   chat.scrollTop=chat.scrollHeight;
+  chatHistory.push({role:'user',content:t});
 
   var key=document.getElementById('apiKey').value.trim();
   var model=document.getElementById('apiModel').value;
@@ -1878,17 +1883,19 @@ function sendMsg(){
     return;
   }
 
-  // Typing indicator
+  // Typing indicator — use a variable reference, never reuse IDs
   var typing=document.createElement('div');
-  typing.className='msg ai';typing.id='aiTyping';typing.innerHTML='AI 思考中...';
+  typing.className='msg ai';
+  typing.innerHTML='AI 思考中...';
   chat.appendChild(typing);chat.scrollTop=chat.scrollHeight;
   statusEl.textContent='请求中...';
   statusEl.className='sf-status';
 
-  var messages=[
-    {role:'system',content:buildSystemPrompt()+t},
-    {role:'user',content:t}
-  ];
+  // Build messages with history
+  var messages=[{role:'system',content:buildSystemPrompt()}];
+  // Keep last 10 turns to stay within token limits
+  var recent=chatHistory.slice(-20);
+  recent.forEach(function(h){messages.push(h)});
 
   fetch('https://api.deepseek.com/v1/chat/completions',{
     method:'POST',
@@ -1897,10 +1904,8 @@ function sendMsg(){
   })
   .then(function(r){return r.json()})
   .then(function(data){
-    var typingEl=document.getElementById('aiTyping');
-    if(!typingEl)return;
     if(data.error){
-      typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — API 返回错误</div>'+generateAIResponse(t);
+      typing.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — API 返回错误</div>'+generateAIResponse(t);
       statusEl.textContent='API 错误：'+data.error.message;
       statusEl.className='sf-status err';
       chat.scrollTop=chat.scrollHeight;
@@ -1908,7 +1913,7 @@ function sendMsg(){
     }
     var reply=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
     if(!reply){
-      typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — AI 无响应</div>'+generateAIResponse(t);
+      typing.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — AI 无响应</div>'+generateAIResponse(t);
       statusEl.textContent='响应为空';
       statusEl.className='sf-status err';
       chat.scrollTop=chat.scrollHeight;
@@ -1917,15 +1922,14 @@ function sendMsg(){
     // Simple markdown-like formatting
     reply=reply.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
     reply=reply.replace(/\n/g,'<br>');
-    typingEl.innerHTML=reply;
+    typing.innerHTML=reply;
+    chatHistory.push({role:'assistant',content:reply.replace(/<br>/g,'\n').replace(/<b>/g,'**').replace(/<\/b>/g,'**')});
     statusEl.textContent='已连接 · '+model;
     statusEl.className='sf-status';
     chat.scrollTop=chat.scrollHeight;
   })
   .catch(function(err){
-    var typingEl=document.getElementById('aiTyping');
-    if(!typingEl)return;
-    typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — 网络错误（'+err.message+'）</div>'+generateAIResponse(t);
+    typing.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — 网络错误（'+err.message+'）</div>'+generateAIResponse(t);
     chat.scrollTop=chat.scrollHeight;
     statusEl.textContent='网络错误';
     statusEl.className='sf-status err';
@@ -1937,6 +1941,7 @@ function fallbackReply(query,chat){
   typing.className='msg ai';
   typing.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — API 未连接，以下为本地分析</div>'+generateAIResponse(query);
   chat.appendChild(typing);chat.scrollTop=chat.scrollHeight;
+  chatHistory.push({role:'assistant',content:generateAIResponse(query)});
 }
 
 /* ===== Capability panel ===== */
