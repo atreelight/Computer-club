@@ -654,6 +654,27 @@ body{
 }
 .ai-input-wrap button:hover{opacity:.85}
 
+/* API Settings */
+.ai-settings-btn{
+  font-size:.7rem;color:var(--muted);background:none;border:none;
+  cursor:pointer;padding:.2rem .4rem;transition:var(--t);
+}
+.ai-settings-btn:hover{color:var(--accent)}
+.ai-settings{
+  display:none;background:var(--surface2);border-top:1px solid var(--border2);
+  padding:.625rem .875rem;
+}
+.ai-settings.show{display:block;animation:fadeIn .15s ease}
+.ai-settings .sf-row{display:flex;align-items:center;gap:.4rem;margin-bottom:.35rem}
+.ai-settings .sf-row label{font-size:.72rem;color:var(--muted);width:50px;flex-shrink:0}
+.ai-settings .sf-row input,.ai-settings .sf-row select{
+  flex:1;padding:.25rem .4rem;border:1px solid var(--border);border-radius:4px;
+  font-size:.75rem;font-family:inherit;background:var(--surface);outline:none;
+}
+.ai-settings .sf-row input:focus{border-color:var(--accent)}
+.ai-settings .sf-status{font-size:.7rem;color:var(--green);margin-top:.2rem}
+.ai-settings .sf-status.err{color:var(--red)}
+
 .ai-fab{
   position:fixed;bottom:1rem;right:1rem;z-index:199;
   width:44px;height:44px;border-radius:50%;
@@ -963,18 +984,22 @@ body{
 <aside class="ai-drawer" id="aiDrawer">
   <div class="ai-drawer-head">
     <div class="title">AI 装机助手</div>
-    <div class="status"><span class="dot"></span>在线</div>
+    <button class="ai-settings-btn" onclick="toggleAISettings()">⚙ 设置</button>
     <button class="close" onclick="toggleAI()">✕</button>
+  </div>
+  <div class="ai-settings" id="aiSettings">
+    <div class="sf-row"><label>API Key</label><input type="password" id="apiKey" placeholder="粘贴你的 DeepSeek API Key" onchange="saveApiKey()"></div>
+    <div class="sf-row"><label>模型</label><select id="apiModel" onchange="saveApiKey()"><option value="deepseek-v4-flash">deepseek-v4-flash</option><option value="deepseek-chat">deepseek-chat</option></select></div>
+    <div class="sf-status" id="apiStatus">首次使用请在上方填入 API Key，仅保存在本地浏览器</div>
   </div>
   <div class="ai-chat" id="aiChat">
     <div class="msg ai">
-      你好！我是装机助手AI，内置图拉丁吧社区经验、游戏/软件基准库和实时价格趋势。<br><br>
-      你可以问我：<br>
-      • "预算7000玩燕云十六声怎么配"<br>
-      • "内存涨价了要不要等"<br>
-      • "这套配置能跑黑神话吗"<br>
-      • "二手显卡怎么避坑"<br>
-      • "CPU和主板兼容吗"
+      你好！我是你的装机助手。<br><br>
+      随便聊，比如：<br>
+      "预算7000玩燕云十六声怎么配"<br>
+      "我原机有什么能拆下来用的"<br>
+      "帮我看看这套配置有什么坑"<br><br>
+      <span style="font-size:.72rem;color:var(--muted)">AI 对话需要 DeepSeek API Key。点击右上角 ⚙ 设置填入，key 只存在你本地浏览器，不会上传任何服务器。</span>
     </div>
   </div>
   <div class="ai-input">
@@ -1663,8 +1688,59 @@ var kb={
 function generateAIResponse(query){
   var q=query.toLowerCase();
   var total=kb.currentTotal();
+  var machine=getCurrentMachine();
+  var cfg=config.items.map(function(i){return i.cat+': '+i.model+' '+fmtPrice(i.price);}).join('\n');
 
-  // Budget intent
+  // Helper: build generic analysis based on current config
+  function genericAnalysis(){
+    var html='当前配置分析：<br><br>';
+    html+=cfg.replace(/\n/g,'<br>')+'<br>';
+    html+='<br>总计 <b>'+fmtPrice(total)+'</b>，预算 <b>'+fmtPrice(config.budget)+'</b>';
+    var remain=config.budget-total;
+    if(remain>0)html+='，剩余 <b style="color:var(--green)">'+fmtPrice(remain)+'</b>';
+    else html+='，超预算 <b style="color:var(--red)">'+fmtPrice(-remain)+'</b>';
+    html+='<br><br>';
+    // Quick assessment
+    var gpu=config.items[3].model;
+    var ram=/32|64/.test(config.items[2].model)?32:16;
+    if(/5060|4070/.test(gpu)&&ram>=16){
+      html+='这套配置<strong>主流3A无压力</strong>，1080P高画质、1440P中高画质都能跑。<br>';
+    }else if(/3050|1060/.test(gpu)){
+      html+='这套配置<strong>偏入门</strong>，大型3A需要降画质，网游没问题。<br>';
+    }else{
+      html+='这套配置<strong>中等偏上</strong>，大部分游戏1080P流畅。<br>';
+    }
+    // Price warning
+    var mem=config.items[2].model;
+    if(/DDR4/.test(mem)&&total>6000){
+      html+='注意你选的是DDR4内存，如果预算充足可以考虑上DDR5平台（需换主板）。<br>';
+    }
+    html+='<br>有具体问题可以继续问我，或者去配置清单里换配件对比。';
+    return html;
+  }
+
+  // Migrate / reuse parts from old laptop
+  if(/拆|迁移|复用| reuse|原机|旧电脑|旧机|笔记本|拯救者|y9000|rog|暗影精灵|游匣/.test(q)){
+    var html='关于从笔记本拆件复用：<br><br>';
+    if(machine){
+      html+='你的原机是 <b>'+machine.name+'</b><br>';
+      html+='CPU: '+machine.cpu+' | GPU: '+machine.gpu+' | RAM: '+machine.ram+' | 硬盘: '+machine.storage+'<br><br>';
+    }
+    html+='<b>能拆下来用的（绿色）：</b><br>';
+    html+='• <b>M.2 SSD</b> — 笔记本的NVMe SSD可以直接插台式主板，数据保留<br>';
+    html+='• <b>2.5寸SATA SSD/HDD</b> — 需要一根SATA数据线和电源线，几块钱<br>';
+    html+='• <b>内存条</b> — 如果是DDR4笔记本条可以用转接卡（不推荐，稳定性差）；DDR5笔记本条目前无转接方案<br><br>';
+    html+='<b>不能用的（红色）：</b><br>';
+    html+='• <b>CPU</b> — 笔记本CPU焊在主板上，拆不下来<br>';
+    html+='• <b>显卡</b> — 笔记本显卡也是焊死的（极少MXM接口可换，但无法装台式）<br>';
+    html+='• <b>屏幕</b> — 需要驱动板才能当显示器用，折腾成本高<br>';
+    html+='• <b>电池/电源适配器</b> — 电压和接口都不匹配<br><br>';
+    html+='<b>实用建议：</b><br>';
+    html+='如果原机硬盘里有重要数据，直接拆SSD装到新台式最省事。旧笔记本挂闲鱼整机出，比拆零件卖值钱。整机出之前记得清数据。';
+    return html;
+  }
+
+  // Budget
   if(/预算|多少钱|便宜|贵|性价比|划算/.test(q)){
     var m=q.match(/(\d{3,6})/);
     var budget=m?parseInt(m[1]):0;
@@ -1673,148 +1749,112 @@ function generateAIResponse(query){
       return budget>=parseInt(r[1])&&budget<=parseInt(r[2]);
     });
     if(!tier)tier=kb.budgetTiers.find(function(t){return /5000-8000/.test(t.range)});
-    var html='根据预算<b>'+fmtPrice(budget||8000)+'</b>，推荐方案：<br><br>';
+    var html='预算'+fmtPrice(budget||config.budget)+'的方案：<br><br>';
     html+='<b>'+tier.tier+'</b>（'+tier.range+'）<br>';
     html+='CPU: '+tier.cpu+'<br>';
     html+='显卡: '+tier.gpu+'<br>';
-    html+='内存: '+tier.ram+'<br>';
-    html+='<br>'+tier.desc;
-    html+='<div class="quote"><b>图拉丁吧</b>：电源散热SSD必须全新，CPU内存可二手省30-50%。组双通道不买RGB灯条。</div>';
-    html+='<span class="apply" onclick="switchPanelByName(\'config\')">→ 查看配置清单</span>';
+    html+='内存: '+tier.ram+'<br><br>';
+    html+=tier.desc+'<br><br>';
+    html+='图拉丁吧经验：电源散热SSD必须全新，CPU内存可二手省30-50%。组双通道，别买RGB灯条。';
     return html;
   }
 
-  // Game performance
+  // Game
   for(var i=0;i<kb.games.length;i++){
     var g=kb.games[i];
     if(q.includes(g.name.toLowerCase())||q.includes(g.name)){
-      var html='<b>'+g.name+'</b> 性能分析：<br><br>';
+      var html='<b>'+g.name+'</b><br><br>';
       html+='最低配置: '+g.minCpu+' / '+g.minGpu+' / '+g.minRam+'<br>';
-      html+='推荐内存: '+g.recRam+' · 存储: '+g.storage+'<br><br>';
+      html+='推荐: '+g.recRam+'内存 · '+g.storage+'<br><br>';
       html+='当前配置预估: <b>'+g.fpsCur+'</b><br>';
       html+='同级别平均: '+g.fps1080p+'<br><br>';
       html+=g.note;
-      if(g.fpsCur.includes('不达标')){
-        html+='<div class="quote"><b>建议</b>：当前配置无法流畅运行，建议升级显卡至'+(g.name==='GTA 6'?'RTX 4070+':'更高规格')+'</div>';
-      }
-      html+='<span class="apply" onclick="switchPanelByName(\'capability\')">→ 查看能力映射</span>';
       return html;
     }
   }
 
-  // Software performance
+  // Software
   if(/剪辑|pr|premiere|达芬奇|davinci|剪映/.test(q)){
-    var s=kb.software.find(function(x){return /Premiere|DaVinci|剪映/.test(x.name)});
-    var html='<b>视频剪辑</b>性能分析：<br><br>';
-    html+='Premiere Pro: <b>4K流畅</b>（CPU多核+32GB内存是关键）<br>';
-    html+='DaVinci Resolve: <b>HD可用</b>（吃显存，12GB VRAM勉强跑4K）<br>';
-    html+='剪映专业版: <b>4K流畅</b>（优化好，当前配置完全够用）<br><br>';
-    html+='Intel CPU的QuickSync对Premiere加速明显，AMD平台建议靠显卡硬解。';
-    html+='<div class="quote"><b>建议</b>：如果主力是DaVinci，考虑加预算换5060 Ti 16GB（+600元），VRAM翻倍4K更稳。</div>';
-    return html;
+    return '视频剪辑这块：<br><br>Premiere Pro 吃CPU多核+大内存，Intel有QuickSync加速。DaVinci Resolve吃显存，12GB VRAM做4K会爆，16GB才稳。剪映优化好，基本不挑配置。<br><br>你当前配置'+( /5060|4070/.test(config.items[3].model)?'能跑':'显卡偏弱，建议升级')+'。';
   }
   if(/编程|开发|代码|vs|visual studio|unreal|ue5/.test(q)){
-    var html='<b>编程开发</b>性能分析：<br><br>';
-    html+='Visual Studio: <b>流畅</b>（大型方案100+项目建议32GB，当前已满足）<br>';
-    html+='Unreal Engine 5: <b>不达标</b>（需要64GB内存+RTX 4070+编译Shader）<br>';
-    html+='Blender: <b>中场景</b>（OptiX渲染12GB VRAM够用，大场景需24GB+）<br><br>';
-    html+='日常开发和VS完全没问题。如果要做UE5开发，内存需加到64GB（约+1200元），显卡建议升到4070 Super。';
-    return html;
+    return '编程开发：<br><br>Visual Studio 日常完全没问题。UE5开发需要64GB内存+4070以上显卡编译Shader。Blender 12GB显存中等场景够用。<br><br>你当前配置'+( /5060|4070/.test(config.items[3].model)&&/32/.test(config.items[2].model)?'够':'内存或显卡需要升级')+'。';
   }
 
-  // Price trend
+  // Price
   if(/涨价|降价|趋势|时机|涨|跌|等/.test(q)){
-    var html='当前硬件价格趋势分析：<br><br>';
-    html+='<b>内存 ↑300%</b> — AI浪潮HBM挤占DRAM产能<br>';
-    html+='DDR4 16G×2从300涨到600元，短期只涨不跌<br>';
-    html+='建议：刚需直接买，非刚需先用8G×2过渡<br><br>';
-    html+='<b>SSD ↑80%</b> — NAND原厂减产<br>';
-    html+='1TB从350涨到500元，SATA涨幅较小<br>';
-    html+='建议：512G先用，后续降价再扩容<br><br>';
-    html+='<b>CPU ↓5%</b> — 新品上市老款降价<br>';
-    html+='R5 9600降到1250元，入手时机好<br><br>';
-    html+='<b>显卡 稳定</b> — RTX 5060刚上市<br>';
-    html+='2200元合理，4060缓慢降价可蹲1700以下';
-    html+='<div class="quote"><b>图拉丁吧</b>：内存SSD刚需就买别等，CPU显卡可以蹲大促。</div>';
-    return html;
+    return '价格趋势：<br><br><b>内存 ↑300%</b> — AI浪潮挤占DRAM，DDR4 16G×2从300涨到600，刚需就买别等。<br><b>SSD ↑80%</b> — NAND减产，1TB从350涨到500。<br><b>CPU ↓5%</b> — 新品上市老款清库存，入手时机好。<br><b>显卡稳定</b> — RTX 5060刚上市2200元合理。';
   }
 
   // Compatibility
   if(/兼容|能不能配|匹配|插槽|am4|am5|ddr4|ddr5/.test(q)){
-    var html='兼容性检查结果：<br><br>';
+    var html='兼容性：<br><br>';
     kb.compat.forEach(function(c){html+='• '+c+'<br>'});
-    html+='<br>当前配置：<br>';
-    html+=kb.currentConfig().replace(/\n/g,'<br>');
-    html+='<br><br>总计: <b>'+fmtPrice(total)+'</b>';
-    var chips=document.querySelectorAll('#compatRow .compat-chip');
-    if(chips.length){
-      html+='<br><br>实时检测：';
-      chips.forEach(function(c){html+=c.textContent+' · '});
-    }
+    html+='<br>当前配置：<br>'+cfg.replace(/\n/g,'<br>');
     return html;
   }
 
   // Upgrade
   if(/升级|换|提升|加强/.test(q)){
-    var html='升级建议（按性价比排序）：<br><br>';
-    html+='<b>1. 内存 16G→32G（+¥600）</b><br>';
-    html+='燕云十六声、UE5、4K剪辑都吃内存，32GB体验质变<br><br>';
-    html+='<b>2. SSD 1T→2T（+¥350）</b><br>';
-    html+='现在一个3A就130GB，1TB装不下几个游戏<br><br>';
-    html+='<b>3. 显卡 5060→5060 Ti 16G（+¥600）</b><br>';
-    html+='VRAM翻倍，1440P和AI绘图更稳，DaVinci 4K不爆显存<br><br>';
-    html+='<b>4. 电源 650W→750W（+¥100）</b><br>';
-    html+='为未来显卡升级留余量，100元买个安心';
-    html+='<div class="quote"><b>图拉丁吧</b>：先升内存再升SSD，显卡看需求。电源够用就行，不必过度堆冗余。</div>';
-    html+='<span class="apply" onclick="switchPanelByName(\'config\')">→ 去配置清单换配件</span>';
-    return html;
+    return '升级优先级：<br><br><b>1. 内存</b> — 16G→32G（+¥600），燕云/UE5/剪辑都吃内存<br><b>2. SSD</b> — 1T→2T（+¥350），一个3A就130G<br><b>3. 显卡</b> — 5060→5060 Ti 16G（+¥600），VRAM翻倍<br><b>4. 电源</b> — 650W→750W（+¥100），留升级余量<br><br>图吧经验：先升内存再升SSD，显卡看需求。';
   }
 
-  // Second-hand / fraud
+  // Second-hand
   if(/二手|闲鱼|翻新|矿卡|避坑|骗|坑/.test(q)){
-    var html='二手硬件避坑指南（图拉丁吧社区经验）：<br><br>';
-    html+='<b>必须全新（红色禁区）：</b><br>';
-    html+=kb.fraud.mustNew.join('、')+'<br>';
-    html+='电源二手是火灾隐患，哪怕外观全新。<br><br>';
-    html+='<b>可放心二手（绿色放心）：</b><br>';
-    html+=kb.fraud.canSecond.join('、')+'<br>';
-    html+='铁律：组双通道，不买RGB灯条（故障率高、溢价陷阱）。<br><br>';
-    html+='<b>话术识别：</b><br>';
-    kb.fraud.warning.forEach(function(w){html+='• '+w+'<br>'});
-    html+='<br><b>验机SOP：</b><br>'+kb.fraud.verify;
-    return html;
+    return '二手避坑：<br><br><b>必须全新：</b>'+kb.fraud.mustNew.join('、')+'<br><b>可二手：</b>'+kb.fraud.canSecond.join('、')+'<br><br>经典话术："女生自用99新"=溢价20-30%；"微信转账脱离平台"=100%诈骗。显卡看防拆贴，电源绝对不能二手。';
   }
 
-  // Total / summary
+  // Total
   if(/总计|一共|多少钱|花了|总价/.test(q)){
-    var html='当前配置清单：<br><br>';
-    html+=kb.currentConfig().replace(/\n/g,'<br>');
-    html+='<br><br>总计: <b>'+fmtPrice(total)+'</b> / 预算: '+fmtPrice(config.budget);
+    var html='当前配置：<br><br>'+cfg.replace(/\n/g,'<br>');
+    html+='<br><br>总计 <b>'+fmtPrice(total)+'</b> / 预算 '+fmtPrice(config.budget);
     var remain=config.budget-total;
-    if(remain>0){
-      html+='<br>剩余预算: <b style="color:var(--green)">'+fmtPrice(remain)+'</b>';
-    }else{
-      html+='<br>超预算: <b style="color:var(--red)">'+fmtPrice(-remain)+'</b>';
-    }
+    html+=remain>0?'<br>剩余 <b style="color:var(--green)">'+fmtPrice(remain)+'</b>':'<br>超预算 <b style="color:var(--red)">'+fmtPrice(-remain)+'</b>';
     return html;
   }
 
-  // Default
-  var html='我理解你的问题是"'+query+'"。<br><br>';
-  html+='当前配置总价 <b>'+fmtPrice(total)+'</b>，你可以问我：<br>';
-  html+='• "预算6000怎么配" — 按预算推荐方案<br>';
-  html+='• "能跑黑神话悟空吗" — 游戏性能分析<br>';
-  html+='• "内存涨价了要不要等" — 价格趋势建议<br>';
-  html+='• "CPU和主板兼容吗" — 兼容性检查<br>';
-  html+='• "怎么升级" — 性价比升级建议<br>';
-  html+='• "二手显卡怎么避坑" — 图拉丁吧防骗指南<br>';
-  html+='• "配置复制给AI" — 点击配置清单页的复制按钮';
-  return html;
+  // Generic fallback — always useful, never a dead template
+  return genericAnalysis();
 }
 
 function switchPanelByName(name){
   var btn=document.querySelector('.sb-item[onclick*="'+name+'"]');
   if(btn)switchPanel(name,btn);
+}
+
+function toggleAISettings(){
+  document.getElementById('aiSettings').classList.toggle('show');
+}
+
+function saveApiKey(){
+  var key=document.getElementById('apiKey').value.trim();
+  var model=document.getElementById('apiModel').value;
+  if(key)localStorage.setItem('pcb_api_key',key);
+  localStorage.setItem('pcb_api_model',model);
+  document.getElementById('apiStatus').textContent=key?'已保存 · 刷新后仍保留':'已清空';
+  document.getElementById('apiStatus').className='sf-status';
+}
+
+function loadApiKey(){
+  var key=localStorage.getItem('pcb_api_key')||'';
+  var model=localStorage.getItem('pcb_api_model')||'deepseek-v4-flash';
+  document.getElementById('apiKey').value=key;
+  document.getElementById('apiModel').value=model;
+  if(key){
+    document.getElementById('apiStatus').textContent='已加载保存的 Key';
+    document.getElementById('apiStatus').className='sf-status';
+  }
+}
+
+function buildSystemPrompt(){
+  var total=config.items.reduce(function(s,i){return s+i.price},0);
+  var cfgLines=config.items.map(function(i){return i.cat+': '+i.model+' '+fmtPrice(i.price);}).join('\n');
+  var machine=getCurrentMachine();
+  var oldInfo=machine?'用户原机是'+machine.name+'('+machine.cpu+'/'+machine.gpu+'/'+machine.ram+')，':'用户没有选原机，';
+  return '你叫"装机助手"，是个懂硬件的老玩家。说话像朋友聊天，自然、直接、不端着。用户问什么你就答什么，别绕弯子。\n\n'+
+    oldInfo+'当前想配的台式配置如下（总价'+fmtPrice(total)+'，预算'+fmtPrice(config.budget)+'）：\n'+cfgLines+'\n\n'+
+    '硬件行情（2025-2026）：内存因为AI涨价300%，SSD涨80%，CPU降5%，显卡稳定。图拉丁吧经验：电源必须全新，CPU和内存可二手，别买RGB灯条。\n\n'+
+    '回答要求：直接说人话，别列清单。用户问拆件就告诉他什么能拆什么不能拆，用户问预算就推荐方案，用户问游戏就说帧数。不懂就坦诚说"这个我不确定"，别瞎编。语气随意，可以吐槽。';
 }
 
 function sendMsg(){
@@ -1826,14 +1866,77 @@ function sendMsg(){
   m.className='msg user';m.textContent=t;
   chat.appendChild(m);input.value='';
   chat.scrollTop=chat.scrollHeight;
+
+  var key=document.getElementById('apiKey').value.trim();
+  var model=document.getElementById('apiModel').value;
+  var statusEl=document.getElementById('apiStatus');
+
+  if(!key){
+    statusEl.textContent='未设置 API Key';
+    statusEl.className='sf-status err';
+    fallbackReply(t,chat);
+    return;
+  }
+
   // Typing indicator
   var typing=document.createElement('div');
-  typing.className='msg ai';typing.innerHTML='正在检索知识库...';
+  typing.className='msg ai';typing.id='aiTyping';typing.innerHTML='AI 思考中...';
   chat.appendChild(typing);chat.scrollTop=chat.scrollHeight;
-  setTimeout(function(){
-    typing.innerHTML=generateAIResponse(t);
+  statusEl.textContent='请求中...';
+  statusEl.className='sf-status';
+
+  var messages=[
+    {role:'system',content:buildSystemPrompt()+t},
+    {role:'user',content:t}
+  ];
+
+  fetch('https://api.deepseek.com/v1/chat/completions',{
+    method:'POST',
+    headers:{'Authorization':'Bearer '+key,'Content-Type':'application/json'},
+    body:JSON.stringify({model:model,messages:messages,max_tokens:2048,temperature:0.8})
+  })
+  .then(function(r){return r.json()})
+  .then(function(data){
+    var typingEl=document.getElementById('aiTyping');
+    if(!typingEl)return;
+    if(data.error){
+      typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — API 返回错误</div>'+generateAIResponse(t);
+      statusEl.textContent='API 错误：'+data.error.message;
+      statusEl.className='sf-status err';
+      chat.scrollTop=chat.scrollHeight;
+      return;
+    }
+    var reply=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+    if(!reply){
+      typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — AI 无响应</div>'+generateAIResponse(t);
+      statusEl.textContent='响应为空';
+      statusEl.className='sf-status err';
+      chat.scrollTop=chat.scrollHeight;
+      return;
+    }
+    // Simple markdown-like formatting
+    reply=reply.replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
+    reply=reply.replace(/\n/g,'<br>');
+    typingEl.innerHTML=reply;
+    statusEl.textContent='已连接 · '+model;
+    statusEl.className='sf-status';
     chat.scrollTop=chat.scrollHeight;
-  },600);
+  })
+  .catch(function(err){
+    var typingEl=document.getElementById('aiTyping');
+    if(!typingEl)return;
+    typingEl.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — 网络错误（'+err.message+'）</div>'+generateAIResponse(t);
+    chat.scrollTop=chat.scrollHeight;
+    statusEl.textContent='网络错误';
+    statusEl.className='sf-status err';
+  });
+}
+
+function fallbackReply(query,chat){
+  var typing=document.createElement('div');
+  typing.className='msg ai';
+  typing.innerHTML='<div style="font-size:.72rem;color:var(--amber);margin-bottom:.4rem">⚠ 离线模式 — API 未连接，以下为本地分析</div>'+generateAIResponse(query);
+  chat.appendChild(typing);chat.scrollTop=chat.scrollHeight;
 }
 
 /* ===== Capability panel ===== */
@@ -2189,6 +2292,7 @@ function restartQA(){
 renderConfig();
 renderCompare();
 renderQAStep();
+loadApiKey();
 </script>
 </body>
 </html>
